@@ -1,0 +1,832 @@
+\documentclass{article}
+
+%\VignetteIndexEntry{An R package for coalescent simulation and estimation in a varying environment}
+%\VignettePackage{coalsieve}
+%\VignetteDepends{ape}
+%\VignetteKeyword{coalescent}
+
+\usepackage[dvips]{color}
+\usepackage{latexsym}
+\usepackage[activeacute,english]{babel}
+\usepackage{graphicx}
+\usepackage{amsmath,natbib}
+\usepackage{algorithmic}
+\usepackage{algorithm,indentfirst}
+%\newtheorem{algorithm}[theorem]{Algorithm}
+
+
+
+
+\usepackage{amscd}
+\usepackage{amsfonts}
+\usepackage[tableposition=top]{caption}
+\usepackage{ifthen}
+\usepackage[utf8]{inputenc}
+\newenvironment{definition}[1][Definition]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{example}[1][Example]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{remark}[1][Remark]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{theorem}[1][Theorem]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}} 
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+
+%\newtheorem{algorithm}[theorem]{Algorithm}
+%\newtheorem{definition}[theorem]{Definition}
+
+\usepackage{Sweave}
+\begin{document}
+\title{Coalsieve vignette}
+\author{Julia A. Palacios and Vladimir N. Minin}
+%\institute{Department of Statistics\\University of Washington, Seattle\\
+%\email{jpalacio@stat.washington.edu}}
+\maketitle
+
+\section{Introduction}
+
+Phylodynamics is the field that aims to understand the dynamics of a population through phylogenetic and population genetics models. That is, given molecular sequence data, a population genetic model (coalescent with variable population) and a phylogenetic reconstruction model (genealogy and mutation), it is possible to estimate a population size trajectory, a genealogy and mutation parameters.
+\par
+Many estimation methods rely on Markov Chain Monte Carlo (MCMC) sampling to perform inference. Sometimes, these methods rely on simulated genealogies with a specificed effective population size trajectory. The effective population size $N_{e}(t)$ is an abstract parameter that for a real biological population is proportional to the rate at which genetic diversity is lost or gained.
+\par
+\citet{slatkin_pairwise_1991} and \citet{griffiths_sampling_1994} introduced the coalescent with deterministic variable population size. This model defines the density of a genealogy with contemporary sequences as a function of a deterministic varying population size trajectory. Later,
+\citet{joseph_coalescent_1999} extended the coalescent model to genealogies with serially sampled sequences (heterochronous).
+\par
+\citet{Palacios_minin_2012} show that the coalescent with variable population size can be viewed as a temporal point process and estimation of effective population size trajectories is analogous to the estimation of an intensity function of this point process. This also allows us to see the problem of simulation from a coalescent process with variable population size equivalent to the problem of simulation from a Poisson process with inhomogeneous intensity function. 
+\par
+Currently, there are many program implementations that allows us to simulate genealogies from a deterministically varying effective population size. To the best of our knowledge, they use a \textit{time transformation} method \citep{slatkin_pairwise_1991,hein_gene_2005}. This method is based on the random time-change theorem due to Papangelou (1972). However, when $N_{e}(t)$ is stochastic, this method cannot be used. Instead, \citet{Palacios_minin_2012} propose \textit{thinning}, a rejection-based method originally proposed for simulation of inhomogenous Poisson process realizations by "thinning" a homogeneous Poisson process \citep{lewis_simulation_1978}.
+\par
+In this document, we describe our \texttt{R} package called \texttt{coalsieve} that, among other things, allows simulation of genealogies using the time transformation or thinning methods for deterministic population trajectories and allows simulation of genealogies using thinning for stochastically varying population trajectories.
+
+\section{Coalescent with varying population size}
+Let $t_{n}=0$ denote the present time when all the $n$ available sequences are sampled (\textit{isochronous} ) and let $t_{n}=0<t_{n-1}<...<t_{1}$ denote the coalescent times (going backwards) of lineages in the genealogy.
+The conditional density of the 
+coalescent time $t_{k-1}$ takes the following form: 
+\begin{equation}
+P[t_{k-1}|t_{k},N_{e}(t)]=\frac{C_{k}}{N_{e}(t_{k-1})} exp \left[ -\int^{t_{k-1}}_{t_{k}}\frac{C_{k}dt}{N_{e}(t)} \right] , 
+\end{equation}
+where $C_{k}=\binom{k}{2}$ is the coalescent factor that depends on the number of lineages $k=2,...,n$.
+\par 
+The \textit{heterochronous coalescent} or \textit{serially sampled coalescent} arises when not all sequences are sampled at the same time. In this case, the density is
+ \begin{equation} \label{eq:hetero}
+P[t_{k-1}|t_{k},N_{e}(t),\mathbf{s}]= \frac{C_{0,k}}{N_{e}(t_{k-1})} exp -\left\lbrace\int_{I_{0,k}} \frac{C_{0,k}dt}{N_{e}(t)}+\sum^{m}_{i=1}\int_{I_{i,k}} \frac{C_{i,k}dt}{N_{e}(t)}\right\rbrace,
+\end{equation}
+where $t_{n}=0<t_{n-1}<...<t_{1}$ denote the coalescent times as before, but the coalescent factor $C_{i,k}=\binom{n_{i,k}}{2}$ depends on 
+the number of lineages $n_{i,k}$ in the interval $I_{i,k}$ defined by coalescent times and sampling times  $s_{m}=0<s_{m-1}<...<s_{1}<s_{0}=t_{1}$  of $n_{m},...,n_{1}$ sequences respectively, $\sum^{m}_{j=1}n_{j}=n$. 
+\begin{equation} \label{eq:interval1}
+I_{0,k}=(max\{t_{k},s_{j}\},t_{k-1}] \text{, for } s_{j}<t_{k-1} \text{ and }k=2,...,n,
+\end{equation}
+denotes the intervals that end with a coalescent event and
+\begin{equation} \label{eq:interval2}
+I_{i,k}=(max\{t_{k},s_{j+i}\},s_{j+i-1}] \text{, for } s_{j+i-1}>t_{k} \text{ and } s_{j}<t_{k-1}, k=2,...,n,
+\end{equation}
+denotes the intervals that end with a sampling event.
+
+\section{Genealogy simulation}
+A genealogy is a rooted bifurcating tree that describes the ancestral releationships of a sample of sequences. In a genealogy, the internal nodes, when two lineages meet a common ancestor, represent \textit{coalescent events}, and those events occur at \textit{coalescent times}. To simulate a genealogy, we first generate the set of coalescent times and given the constrain imposed by sampling times, we randomly choose lineages to coalesce. The last step can be done using the \texttt{R} package \texttt{ape} \citep{r_ape}.
+
+\subsection{Time transformation method for simulating coalescent times}
+We assume that the effective population size $N_{e}(t)$ is known deterministically and 
+\begin{equation}
+\int^{\infty}_{0}\frac{1}{N_{e}(u)} = \infty,
+\end{equation}
+ then, to simulate the coalescent times of a genealogy with $n$ tips at time $t_{n}=0$ (isochronous), we proceed sequentially as follows:
+ 
+ \begin{algorithm}
+\caption{Simulation of isochronous coalescent times by time transformation} \label{alg1} 
+\begin{algorithmic} [1]
+\REQUIRE {$k=n$, $t_{n}=0$, $N_{e}(t)$}
+\ENSURE {$\mathcal{T}=\{t_{k}\}^{n}_{k=1}$}
+\STATE {$t=0$}
+\WHILE {$k>1$}
+\STATE Sample $x \sim Exp(1)$ and $U\sim U(0,1)$
+\STATE Solve 
+\IF{$U \leq \frac{1}{1+exp(-f(t))} $}
+\STATE $k \leftarrow k-1$, $t_{k} \leftarrow t$
+\ELSE
+\STATE  $i_{k}\leftarrow i_{k}+1$, $m_{k}\leftarrow m_{k}+1$, $t_{k,i_{k}}\leftarrow t$
+\STATE go to 1
+\ENDIF
+\ENDWHILE
+\end{algorithmic} 
+\end{algorithm}
+
+
+ 
+ \begin{enumerate}
+\item Generate $t^{*}_{2},...,t^{*}_{n}$ according to the basic coalescent, where $t^{*}_{j}$ is exponentially distributed with parameter $\binom{j}{2}$.
+\item Solve $\Lambda(t_{j}+s_{j+1})-\Lambda(s_{j+1})=t^{*}_{j}$ for $s_{j}$, $j=2,...,n$ and $s_{n+1}=0$.
+\item $t_{k}=s_{k}-s_{k+1}$ 
+\end{enumerate}
+%
+%Now, given an exponential random variable $X$, where $X\sim exp(\lambda)$, $\lambda X \sim exp(1)$, and hence, the previous algorithm can be modified as
+%\begin{enumerate}
+%\item Generate $t^{*}_{2},...,t^{*}_{n}$ where $t^{*}_{j}$ is exponentially distributed with parameter $1$.
+%\item Solve $\Lambda(t_{j}+s_{j+1})-\Lambda(s_{j+1})=\binom{j}{2}^{-1}t^{*}_{j}$ for $s_{j}$, $j=2,...,n$ and $s_{n+1}=0$.
+%\item $t_{k}=s_{k}-s_{k+1}$ 
+%\end{enumerate}
+%
+%For many rate functions, the inversion of $\Lambda(t)$ must be done numerically. Lewis and Shedler, 1978 proposed "thinning", a more efficient method that
+%does not require numerical integration and is based on the following theorem.
+%
+%\begin{theorem}{Lewis and Shedler, 1978}
+%Consider a one-dimensional homogeneous Poisson process $\{N^{*}(x)\}$ with rate function $\lambda^{*}$, so 
+%that the number of points $N^{*}(x_{0})$, in a fixed interval $(0,x_{0}]$ has a Poisson distribution with parameter
+%$\mu^{*}=\lambda x_{0}$. Let $X^{*}_{1},X^{*}_{2},...,X^{*}_{n}$ be the points of the 
+%process in the interval $(0,x_{0}]$. Suppose that for $x\in [0,x_{0}]$, $\lambda(x)\leq \lambda^{*}$. For $i=1,..,n$, 
+%delete the point $x^{*}_{i}$ with probability $1-\frac{\lambda(x^{*}_{i})}{\lambda^{*}}$; then the 
+%remaining points form a non-homogeneous Poisson process $\{N(x)\}$ with rate function $\lambda(x)$ in the interval
+%$(0,x_{0}]$.
+%\end{theorem}
+%
+%Then, if we want to generate realization of a Poisson process with intensity $\lambda(t)$ on $(0,T]$ with rate $\lambda(t)\leq \lambda$
+%\begin{enumerate}
+%\item Simulate an homogeneous Poisson process with intensity $\lambda$ by first drawing the number of points $k$ from $Poisson(\lambda T)$ and then
+%distributing them uniformly
+%\item Denote the (ordered) points by $\tilde{s}_{1},...,\tilde{s}_{k}$. Set $i=1$ 
+%\item Generate $U_{i}$, uniformly distributed between $0$ and $1$. If $U_{i}\leq \frac{\binom{n}{2}\lambda(\tilde{s}_{i})}{\lambda}$, set $s_{n}=\tilde{s}_{i}$ and $n$ equal to $n-1$.
+%\item Set $i$ equal to $i+1$. If $i\leq k$, go to 3.
+%\item $t_{n}=s_{n}$, $t_{n-j}=s_{n-j}-s_{n-j+1}$ for $j=1,..n-2$
+%\item Return $t_{2},...,t_{n}$ 
+%\end{enumerate}
+%
+%Those $n-1$ points $t_{n},...,t_{2}$ is a realization from equation (1). Note that in this case, $\lambda\geq \binom{n}{2}\lambda(t)$.\\
+%
+%However, if we want to generate exactly $n-1$ points, the previous algorithm is undesirable and we can use thinning for generating a
+%nonhomogeneous Poisson process on an interval-by-interval basis by generating and cumulating exponential($\lambda$) numbers $E_{1},...$. The interval
+%to the next point $X_{i+1}-X_{i}$ is obtained by generating $E_{i+1,1}$, $E_{i+2,1}$,.. until the first time $U_{j}\leq \frac{\lambda(X_{i}+E_{i+1,1}+...+E_{i+1,j})}{\lambda}$.
+%
+%The following algorithm allows us to simulate $t_{2},...t_{n}$ from equation (1) by thinning:
+%\begin{enumerate}
+%\item Let $k=n$, $s=0$, $t^{*}_{j}=0$ for $j=2,...n$
+%\item Generate $E$ from an exponential$(\lambda)$ and a uniform $U$. Let $t^{*}_{k}=t^{*}_{k}+E$ 
+%\item If $U \leq \frac{\binom{k}{2}\lambda(s+t^{*}_{k})}{\lambda}$ $k=k-1$, $t_{k}=t^{*}_{k}$ and $s=s+t_{k}$
+%\item Go back to 2 until $k=1$
+%\end{enumerate}
+%
+%{\bf{Example}}
+%Suppose $N(t)=exp(-10t)$ and wish to generate 1000 genealogies of sample size $n=10$ using the time-scale transformation method and 
+%by thinning.\\
+%$\lambda(t)=exp(10t)$, $\Lambda(t)=\frac{1}{10}[exp(10t)-1]$ and $\Lambda(s_{n+1}=0)=0$, then $s_{n}=t_{n}=\frac{1}{10}log(10t^{*}_{n}+1)$ and
+%$t_{k}=\frac{1}{10}log(10t^{*}_{k}e^{-10s_{k+1}}+1)$
+%
+%Figure~\ref{fig:one} (p.~\pageref{fig:one})
+%
+%<<label=fig1plot,include=FALSE>>=
+%Nsim<-1000
+%result<-matrix(nrow=99,ncol=1000,0)
+%for (i in 1:Nsim){
+%k<-9
+%s<-rep(0,100)
+%t.star<-rep(0,99)
+%t<-rep(0,99)
+%for (j in 100:2){
+%t.star[j-1]<-rexp(1,choose(j,2))
+%t[j-1]<-.1*log(1+10*t.star[j-1]*exp(-10*s[j]))
+%s[j-1]<-s[j]+t[j-1]
+%}
+%result[,i]<-t
+%}
+%meanTMRCA<-mean(colSums(result))
+%meanTMRCA
+%mean_times<-rowMeans(result)
+%plot(seq(2,100,1),mean_times,xlab="n", ylab="Mean t_{n}",ylim=c(0,.08))
+%
+%lambda<-2*exp(10*meanTMRCA)
+%lambda.t<-function(x){exp(10*x)}
+%
+%result2<-matrix(nrow=99,ncol=1000,0)
+%for (i in 1:Nsim){
+%s<-0
+%svec<-rep(0,99)
+%for (j in 100:2){
+%i<-100-j+1
+%switch<-1
+%while (switch==1){
+%s<-s+rexp(1,j*(j-1)*lambda/2)
+%if (lambda.t(s)/lambda>=runif(1) ){
+%              svec[i]<-s
+%              switch=0
+%              }
+%}
+%}
+%result2[,i]<-svec
+%}
+%
+%meanTMRCA<-mean(colSums(result2))
+%meanTMRCA
+%mean_times<-rowMeans(result2)
+%points(seq(2,100,1),mean_times,xlab="n", ylab="Mean t_{n}",col="blue")
+%
+%t<-c(result2[,100],0)
+%x<-seq(0,sum(t),.0001)
+%y<-x
+%s<-0
+%s.cum<-0
+%for (i in 100:2){
+%j<-101-i
+%s.cum<-t[i-1]+s.cum
+%s<-c(s,s.cum)
+%y[x<=s[j+1] & x>s[j]]<-i*(i-1)*lambda.t(x[x<=s[j+1] & x>s[j]])/2
+%}
+%
+%
+%plot(x,1/lambda.t(x),type="l")
+%
+%plot(x,rep(1,length(x)),type="l",main="N(t)=1",xlab="t",ylab="N(t)")
+%points(s,rep(0.8,100),col="blue")
+%
+%
+%
+%par(mfrow=c(3,1))
+%lambda<-1
+%lambda.t<-function(x){1}
+%
+%
+%
+%
+%lambda.t<-function(x){1}
+%lambda<-1
+%
+%
+%
+%
+%
+%
+%#result3<-matrix(nrow=53,ncol=1000,0)
+%#for (i in 1:Nsim){
+%#T<-0.5
+%#s.star<-rep(0,9)
+%#k<-rpois(1,T*lambda)
+%#points<-sort(runif(k,0,T))
+%#l<-1
+%#for (j in 10:2){
+%#while (choose(j,2)*lambda.t(points[l])/lambda<runif(1) & l<=length(points)){
+%#l<-l+1
+%#}
+%#s.star[j-1]<-points[l]
+%#}
+%#result3[,i]<-c(-diff(s.star),s.star[9])
+%#}
+%
+%
+%#meanTMRCA<-mean(colSums(result3))
+%#meanTMRCA
+%#mean_times<-rowMeans(result3)
+%#points(seq(2,10,1),mean_times,xlab="n", ylab="Mean t_{n}",col="blue")
+%
+%@
+%\begin{figure}
+%\begin{center}
+%<<label=fig1,fig=TRUE,echo=FALSE>>=
+%<<fig1plot>>
+%@
+%\end{center}
+%\caption{Black dots: Mean time from transformation method. Red dots: Mean time from thinning using exponentials. Blue dots: Mean time 
+%from thinning using a poisson number of points}
+%\label{fig:one}
+%\end{figure}
+%
+%<<label=fig2plot,include=FALSE>>=
+%par(mfrow=c(3,3))
+%pval<-rep(0,9)
+%for (j in 1:9){
+%qqplot(result[j,],result2[j,])
+%pval[j]<-ks.test(result[j,],result2[j,])$p.value
+%}
+%par(mfrow=c(1,1))
+%pval
+%@
+%
+%\begin{figure}
+%\begin{center}
+%<<label=fig2,fig=TRUE,echo=FALSE>>=
+%<<fig2plot>>
+%@
+%\end{center}
+%\caption{QQ Plots for $t_{2},...t_{10}$}
+%\label{fig:two}
+%\end{figure}
+%
+%\section{Inference of $\lambda(t)$}
+%
+%Taking a nonparametric Bayesian modeling perspective, we will place the following prior on $\lambda(t)$
+%\begin{equation}
+%\lambda(t)=\lambda*(1+exp(-g(t))^{-1}
+%\end{equation}
+%where $g(t)\sim \mathcal{GP}(m(t),C(t,t'))$ has a Gaussian process prior with hyperparameters $\theta$, so that the prior distribution over any discrete set of finite values $\{g(s_{i})\}^{K}_{i=1}$ is a multivariate 
+%Gaussian distribution with mean $m(\mathbf{s})$ and covariance matrix with elements $C(s,s')$. The combination of a Poisson process and Gaussian process is known as a Gaussian Cox process and likelihood inference requires the calculation
+%of an integral over $\lambda(t)$, an infinite-dimensional random function and an intractable posterior distribution. Adams et al, 2009 presented an approach that enables
+%inference based on MCMC, without requiring numeric approximation by augmenting the posterior distribution.\\
+%% over the latent function $g(s)$.\\
+%
+%Given $\lambda(t)=\lambda*(1+exp(-g(t))^{-1}$, we can generate a random realization of coalescent times $s_{2},s_{3},...,s_{n}$ by thinning 
+%an homogeneous Poisson process with rate $\binom{n}{2}\lambda$ (Lewis and Shedler, 1978) as follows:
+%
+%\begin{enumerate}
+%\item Simulate an homogeneous Poisson process with intensity $\binom{n}{2}\lambda$ by first drawing the number of points $k$ from $Poisson(\binom{n}{2}\lambda T)$ and then
+%distributing them uniformly over $(0,T]$
+%\item Denote the (ordered) points by $\tilde{s}_{1},...,\tilde{s}_{k}$. Set $i=1$ and $N=n$
+%\item Sample the function at those points from the Gaussian process: $\{g(\tilde{s}_{i})\}^{k}_{i=1} \sim \mathcal{GP}(g|\mathbf{\tilde{s}},\theta)$
+%\item Generate $U_{i}$, uniformly distributed between $0$ and $1$. If $U_{i}\leq \frac{N(N-1)(1+exp(-g(\tilde{s}_{i})))^{-1}}{n(n-1)}$, accept the point and set $s_{N}=\tilde{s}_{i}$ and $N=N-1$, 
+%otherwise, reject the point and set $s^{N}_{i}=\tilde{s}_{i}$ 
+%\item Set $i$ equal to $i+1$,  If $i\leq k$ and $N\geq2$, go to 3.
+%%\item If $i>k$ and $N\geq 2$, draw a number of points from $Poisson(\binom{n}{2}\lambda T)$ and distribute them uniformly over $(T,2T]$, let 
+%%$k$ the total number of points generated
+%\end{enumerate}
+%
+%Denote by $m_{j}$ the number of points rejected while $N=j$, so that $m=k-n=\sum^{n}_{j=2}m_{j}$ is the total number of rejected points, and let
+%$s^{j}_{1},...,s^{j}_{m_{j}}$ denote the ordered points rejected while $N=j$.\\
+%
+%If we use the prior of equation (3), we are assuming that the observed coalescent times $s_{2},...,s_{n}$ were generated via the thinning procedure previously 
+%described and $Pr(\{s_{i}\}^{n}_{i=2}|\lambda(t))=Pr(\{s_{i}\}^{n}_{i=2}|\mathbf{g})$ is given by equation (1). Since $\lambda(t)$ is a one-to-one function of 
+%$g(t)$, we will focus inference on $g(t)$. Instead of performing MCMC inference via the posterior $p(\mathbf{g}|\{s_{i}\}^{n}_{i=2})$, Adams et al, 2009 proposed
+%to augment the posterior distribution by the latent information generated by the thinning procedure. In this case, the latent variables are:
+%\begin{enumerate}
+%\item The total number of thinned points $m$.
+%\item The position of those points $\{s^{j}_{i}\}^{n,m_{j}}_{j=2,i=1}$.
+%\item The values of the function $g(t)$ at the thinned points $\{g(s^{j}_{i})\}^{n,m_{j}}_{j=2,i=1}$ and at the observed points $\{g(s_{i})\}^{n}_{i=2}$.
+%\end{enumerate}
+%The joint distribution over the information generated by the thinning procedure is
+%\begin{eqnarray*}
+%Pr(\{s_{i}\}^{n}_{i=2},m,\{s^{j}_{i}\}^{n,m_{j}}_{j=2,i=1},\mathbf{g}_{n+m}|\lambda,T,\theta) &=& 
+%\lambda^{n+m} exp\{-\lambda \binom{n}{2} T\}\prod^{n}_{j=2}\left[\binom{j}{2} (1+exp(-g(s_{k})))^{-1}
+%&\times& \prod^{m_{j}}_{i=1}\left[ \binom{n}{2}-\binom{j}{2} (1+exp(-g(s^{j}_{i})))^{-1} \right] \right]
+%&\times& \mathcal{GP}(\mathbf{g}_{n+m}|\{s_{j}\}^{n}_{j=2},\{s^{j}_{i}\}^{n,m_{j}}_{j=2,i=1},\theta). 
+%\end{eqnarray*}
+%
+%Following Adams et al, 2009, we use Metropolis-Hastings moves that can add or remove rejections from the latent history, Metropolis-
+%Hastings to sample the locations of the thinned points and Hamiltonian Monte Carlo for inference of the function values $\mathbf{g}_{m+n}$.
+%
+%\subsection{Sampling the number of thinned points}
+%We can either add or remove thinned points with equal probability.
+%\begin{enumerate}
+%\item If insertion, generate $\tilde{s}'\sim U(0,T)$, draw $g(\tilde{s})\sim\textit{GP}(g(\tilde{s})|\tilde{s},\mathbf{g}_{n+m})$. This proposal is
+%\[q_{ins}=\frac{1}{2T}\textit{GP}(g(\tilde{s})|\tilde{s},\mathbf{g}_{K+M})\]
+%\item If deletion, select randomly from the $M$ current states. This proposal is
+%\[q_{del}=\frac{1}{2m}\]
+%\item The acceptance ratio for insertion is
+%\[a_{ins}=\frac{\lambda T \left[\binom{n}{2}-\binom{j}{2}(1+exp(-g(\tilde{s})))^{-1}1^{\tilde{s}}_{(s_{j+1},s_{j})}\right]}{m+1}\]
+%\item The acceptance ratio for deletion is
+%\[a_{del}=\frac{m}{\lambda T \left[\binom{n}{2}-\binom{j}{2}(1+exp(-g(\tilde{s})))^{-1}1^{\tilde{s}'}_{(s_{j+1},s_{j})}\right]}\]
+%\end{enumerate}
+%
+%\subsection{Sampling the location of the thinned points}
+%
+%Given the number of thinned evens, $m$, we use Metropolis-Hastings to sample from the posterior distribution of the locations by iterating 
+%over each of the thinned events and propose a new location $\tilde{s}^{j}_{i}$ via the proposal density $q(s^{j}_{i}\leftarrow\tilde{s}^{j}_{i})$.
+%We then draw a function value $g(\tilde{s}^{j}_{i}|g_{m+n})$ from the posterior GP conditioned on the current state. \\
+%(option 1): Given $s^{j}_{i}$, draw $\tilde{s}^{j}_{i}\sim U(s_{j+1},s_{j})$\\
+%The Metropolis-Hastings acceptance ratio is then
+%\begin{equation}
+%a_{loc}=\frac{\binom{n}{2}-\binom{j}{2}(1+exp(-g(\tilde{s}^{j}_{i})))^{-1}}{\binom{n}{2}-\binom{j}{2}(1+exp(-g(s^{j}_{i})))^{-1}}
+%\end{equation}
+%(option 2): Given $s^{j}_{i}$, draw $\tilde{s}^{k}_{i}\sim N(s^{j}_{i},\frac{s_{j}-s_{j+1}}{4})$, where $\tilde{s}^{k}_{i}\in(s_{k+1},s_{k})$\\
+%The Metropolis-Hastings acceptance ratio is then
+%\begin{equation}
+%a_{loc}=\frac{\left[\binom{n}{2}-\binom{k}{2}(1+exp(-g(\tilde{s}^{k}_{i})))^{-1}\right]\phi(\frac{s^{j}_{i}-\tilde{s}^{k}_{i}}{(s_{k}-s_{k+1})/4})}{\left[\binom{n}{2}-\binom{j}{2}(1+exp(-g(s^{j}_{i})))^{-1}\right]\phi(\frac{\tilde{s}^{j}_{i}-{s}^{k}_{i}}{(s_{j}-s_{j+1})/4})}
+%\end{equation}
+%
+%
+%\subsection{Sampling the function values}
+%As in Adams et al, we use Hamiltonian Monte Carlo for inference of the function values $\mathbf{g}_{m+n}$. The Hamiltonian Monte Carlo method makes 
+%use of gradient information to reduce random walk behaviour (knowing the direction with higher probability). The state space $\mathbf{s}$ 
+%(interpreted as positions) is augmented by a set of "momentum" variables $\mathbf{p}$ and there is an alternation of two proposals. 
+%The first proposal randomizes the momentum variable, leaving $\mathbf{s}$ unchanged (can be viewed as a Gibbs sampling update)  and the second 
+%changes both using Hamiltonian dynamics defined by
+%\[H(\mathbf{s},\mathbf{p})=E(\mathbf{s})+ K(\mathbf{p})\]
+%where the "potential energy" $E(\mathbf{s}) \propto -log(p(\mathbf{s}))$ the target ditribution and the "kinetic energy" $K(\mathbf{p})=1/2\sum_{i}p^{2}_{i}$.
+%The two proposals are used to create (asymptotically) samples from the joint density
+%\[p(H(\mathbf{s},\mathbf{p}))\propto exp\{-H(\mathbf{s},\mathbf{p})\}\]
+%Since this is separable, the desired samples are obtained by discarding the momentum variables.\\
+%
+%The log conditional posterior distribution is
+%\begin{equation*}
+%ln p(\mathbf{g}|m,\{s_{j}\}^{n}_{j=2},\{s^{j}_{i}\}^{n,m_{j}}_{j=2,i=1},\theta) \propto -\frac{1}{2}\mathbf{g}^{T}\Sigma^{-1}\mathbf{g}-\sum^{n}_{j=2}ln(1+exp(-g(s_{j})))+
+%\end{equation*}
+%\begin{equation*}
+%\sum^{n}_{j=2}\sum^{m_{j}}_{i=1}ln \left(\binom{n}{2}-\binom{j}{2}(1+exp(-g(s^{j}_{i})))^{-1}\right)
+%\end{equation*}
+%Then, the gradient is
+%\begin{equation*}
+%\frac{\partial E}{\partial \mathbf{g}}=(2\mathbf{g}^{T}\Sigma^{-1})^{T}-\frac{exp(-\mathbf{g}(s))}{1+exp(-\mathbf{g}(s))}1_{\mathbf{g}_{n}}
+%+\frac{\binom{j}{2}exp(-\mathbf{g}(s))(1+exp(-\mathbf{g}(s)))^{-2}}{\binom{n}{2}-\binom{j}{2}(1+exp(-\mathbf{g}(s)))^{-1}}1_{\mathbf{g}_{m}}1^{s}_{(s_{j+1},s_{j})}
+%\end{equation*}
+%The full algorithm for HMC becomes iteration of the following steps:
+%\begin{enumerate}
+%\item Sample $\mathbf{p}\sim N(0,1)$
+%\item Simulate the system for $L$ leapfrog steps to generate a proposal
+%\begin{itemize}
+%\item Specify $\epsilon$ and $L$
+%\item Generate proposal from Hamiltonian 
+%\end{itemize}
+%\item Accept or reject the proposed state in a Metropolis step using the joint densities
+%\end{enumerate}
+%
+%\subsection{Example}
+%Assume $N(t)=exp(-10t)$. A simulated sample of size $n=10$ is
+%
+%for (j in 10:2){
+%s[j-1]<-s[j]+mean_times[j-1]
+%}
+%
+%
+%<<simul>>=
+%real.lambda<-function(x){exp(10*x)}
+%set.seed(123)
+%size<-10
+%s<-rep(0,size)
+%t.star<-rep(0,size-1)
+%t<-rep(0,size)
+%for (j in size:2){
+%t.star[j-1]<-rexp(1,choose(j,2))
+%t[j-1]<-.1*log(1+10*t.star[j-1]*exp(-10*s[j]))
+%s[j-1]<-s[j]+t[j-1]
+%}
+%t
+%s
+%
+%#(NEED TO CHANGE SUBINDEX n BY n-1)
+%#Now, we assume $T=0.3$, $lambda=22$ and we initialize $m$ by:
+%#<<init>>=
+%T<-2.9 ## prior selection
+%lambda<-34  ##prior selection
+%m<-rpois(1,lambda*T*2)-9
+%#m<-rpois(1,lambda*T*choose(size,2))-9
+%latent_pos<-runif(m,min=0,max=T)
+%data<-cbind(s[1:(size-1)],seq(2,size,1))
+%
+%data2<-cbind(sort(latent_pos,decreasing=TRUE),rep(1,m))
+%for (j in 1:(size-1)){
+%data2[,2][ data2[,1]>=s[j+1] & data2[,1]<s[j] ]<-j+1
+%}
+%
+%
+%
+%data<-rbind(cbind(data,rep(1,(size-1))),cbind(data2,rep(0,m)))
+%ss<-c(T,s)
+%
+%plot(data[,1][data[,3]==1],rep(0,(size-1)),col="red",ylim=c(0,40),ylab="lambda(t)")
+%points(data[,1][data[,3]==0],rep(0,m))
+%abline(v=data[,1][data[,3]==1])
+%
+%library(mnormt)
+%GP.prior<-function(l,signal.var,s.input){
+%K<-signal.var*exp(-.5*l^-2*(as.matrix(dist(s.input,diag=T,upper=T)))^2)
+%g<-rmnorm(1,rep(0,length(s.input)),K)
+%return(g)
+%}
+%
+%GP.posterior<-function(X,y,l,signal,s.tilde){
+%X<-as.matrix(X)
+%K<-signal*exp(-.5*l^-2*(as.matrix(dist(X,diag=T,upper=T)))^2)
+% L<-t(chol(K))
+%  if (nrow(L)>1){
+%  z<-forwardsolve(L,y+rep(0,length(y)))
+%  alpha<-backsolve(t(L),z)}
+%  if (nrow(L)==1){
+%  z<-y/L
+%  alpha<-z/L}
+%  k.star<-matrix(ncol=nrow(s.tilde),nrow=nrow(X),0)
+%  for (nc in 1:nrow(s.tilde)){
+%  k.star[,nc]<-t(signal*exp(-.5*l^-2*colSums((t(X)-s.tilde[nc,])^2)))
+%  }
+%  v<-forwardsolve(L,k.star)
+%  var.f<-signal*exp(-.5*l^-2*(as.matrix(dist(s.tilde,diag=T,upper=T)))^2) -t(v)%*%v
+%  mean.f<-t(k.star)%*%alpha+rep(0,length(s.tilde))
+%  loglik<--.5*(t(y)%*%alpha)-sum(log(diag(L)))-.5*nrow(X)*log(2*pi)
+%  g<-rmnorm(1,mean.f,var.f)
+%return(list(mean_f=mean.f,var_f=var.f,loglikelihood=loglik,g=g))
+%}
+%##data, x1=s,x2=j coal, x3=1 if observed, 0 latent, x4=g(s) prior
+%##hyperparameters, prior selection
+%l<-min(dist(data[,1]))
+%
+%sig.var<-1
+%
+%g.prior<-GP.prior(l,sig.var,as.matrix(data[,1]))
+%points(s[1:24],g.prior[1:24],col="green")
+%
+%data<-cbind(data,t(g.prior))
+%sigmoidal<-function(x){(1+exp(-x))^-1}
+%points(seq(0,T,.01),real.lambda(seq(0,T,.01)),type="l")
+%points(data[,1],lambda*sigmoidal(data[,4]),pch=2,col="green")
+%
+%
+%
+%
+%number.thinned<-function(s,T,lambda,l,sig.var,info){
+%n<-sum(info[,3])+1
+%m<-nrow(info)-sum(info[,3])
+%if (rbinom(1,1,.5)==1){
+%coal<-1
+%##insertion
+%new<-runif(1,min=0,max=T)
+%g.new<-GP.posterior(as.matrix(info[,1]),info[,4],l,sig.var,as.matrix(new))$g
+%for (j in 1:(n-1)){
+%if (new>=s[j+1] & new <s[j]) {coal<-j+1}
+%}
+%if (runif(1)<min(1,lambda*T*(choose(n,2)-choose(coal,2)*sigmoidal(g.new))/(m+1))){
+%info<-rbind(info,c(new,coal,0,g.new))
+%}
+%
+%}else{
+%##deletion
+%where<-sample(seq(1,m),1)
+%if (runif(1)<min(1,m/(lambda*T*(choose(n,2)-choose(info[n+where-1,2],2)*sigmoidal(info[n+where-1,4]))))){
+%info<-info[-(n-1+where),]
+%}}
+%return(info)
+%}
+%
+%
+%number.thinned2<-function(s,T,lambda,l,sig.var,info){
+%n<-sum(info[,3])+1
+%ss<-c(T,s)
+%for (k in n:1){
+%m<-nrow(info[info[,2]==k,])-1
+%if (rbinom(1,1,.5)==1){
+%##insertion
+%new<-runif(1,min=ss[k+1],max=ss[k])
+%if (k==n){
+%g.new<-GP.posterior(as.matrix(info[,1][info[,2]==k]),info[,4][info[,2]==k],l,sig.var,as.matrix(new))$g}
+%else{
+%add<-info[info[,3]==1 & info[,2]==k+1]
+%g.new<-GP.posterior(as.matrix(c(info[,1][info[,2]==k],add[1])),c(info[,4][info[,2]==k],add[4]),l,sig.var,as.matrix(new))$g}
+%if (runif(1)<min(1,lambda*(ss[k]-ss[k+1])*(choose(n,2)-choose(k,2)*sigmoidal(g.new))/(m+1))){
+%info<-rbind(info,c(new,k,0,g.new))
+%}}else{
+%##deletion
+%where<-sample(seq(1,m),1)
+%who<-info[info[,2]==k & info[,3]==0,]
+%who<-who[where,]
+%if (runif(1)<min(1,m/(lambda*(ss[k]-ss[k+1])*(choose(n,2)-choose(k,2)*sigmoidal(who[4]))))){
+%find<-seq(1,nrow(info),1)[info[,2]==k & info[,3]==0]
+%find<-find[where]
+%info<-info[-(find),]
+%}}
+%}
+%return(info)
+%}
+%
+%
+%
+%
+%location.thinned.uniform<-function(s,T,lambda,l,sig.var,info){
+%n<-sum(info[,3])+1
+%ss<-c(T,s)
+%coal<-info[,2][info[,3]==0]
+%new<-runif(length(coal),min=ss[coal+1],max=ss[coal])
+%g.new<-GP.posterior(as.matrix(info[,1]),info[,4],l,sig.var,as.matrix(new))$g
+%change<-runif(length(coal))<min(1,
+%(rep(choose(n,2),length(coal))-choose(coal,2)*sigmoidal(g.new))/(rep(choose(n,2),length(coal))-choose(coal,2)*sigmoidal(info[,4][info[,3]==0])))
+%info[,1][info[,3]==0][change==TRUE]<-new[change==TRUE]
+%info[,4][info[,3]==0][change==TRUE]<-g.new[change==TRUE]
+%return(info)
+%}
+%
+%
+%
+%location.thinned.uniform2<-function(s,T,lambda,l,sig.var,info){
+%n<-sum(info[,3])+1
+%ss<-c(T,s)
+%coal<-info[,2][info[,3]==0]
+%new<-runif(length(coal),min=ss[coal+1],max=ss[coal])
+%g.new<-rep(0,length(new))
+%for (t in 1:length(new)){
+%if (coal[t]==n){
+%g.new[t]<-GP.posterior(as.matrix(info[,1][info[,2]==coal[t]]),info[,4][info[,2]==coal[t]],l,sig.var,as.matrix(new[t]))$g}
+%else{
+%add<-info[info[,3]==1 & info[,2]==k+1]
+%g.new[t]<-GP.posterior(as.matrix(c(info[,1][info[,2]==coal[t]],add[1])),c(info[,4][info[,2]==coal[t]],add[4]),l,sig.var,as.matrix(new[t]))$g}
+%}
+%change<-runif(length(coal))<min(1,
+%(rep(choose(n,2),length(coal))-choose(coal,2)*sigmoidal(g.new))/(rep(choose(n,2),length(coal))-choose(coal,2)*sigmoidal(info[,4][info[,3]==0])))
+%info[,1][info[,3]==0][change==TRUE]<-new[change==TRUE]
+%info[,4][info[,3]==0][change==TRUE]<-g.new[change==TRUE]
+%return(info)
+%}
+%
+%location.thinned.normal<-function(s,T,lambda,l,sig.var,info){
+%n<-sum(info[,3])+1
+%m<-nrow(info)-sum(info[,3])
+%for (j in n:(n+m-1)){
+%coal1<-info[j,2]
+%sd1<-(s[coal1-1]-s[coal1])/4
+%new<-rnorm(1,mean=info[j,1],sd=sd1)
+%for (i in 1:(n-1)){
+%if (new>=s[i+1] & new <s[i]) {coal2<-i+1}
+%}
+%sd2<-(s[coal2]-s[coal2+1])/4
+%g.new<-GP.posterior(as.matrix(info[,1]),info[,4],l,sig.var,as.matrix(new))$g
+%p<-dnorm(info[j,1],mean=new,sd=sd2)/dnorm(new,mean=info[j,1],sd=sd1)
+%
+%if (runif(1)<p*(choose(n,2)-choose(coal2,2)*sigmoidal(g.new))/(choose(n,2)-choose(coal1,2)*sigmoidal(info[j,4]))){
+%info[j,1]<-new
+%info[j,4]<-g.new
+%info[j,2]<-coal2
+%}
+%}
+%return(info)
+%}
+%
+%hamiltonian<-function(data,alpha,n){
+%indicator<-data[,3]
+%gradient<-t(t(data[,4])%*%alpha)-indicator*sigmoidal(data[,4])*exp(-data[,4])+(1-indicator)*sigmoidal(data[,4])^2*exp(-data[,4])*choose(data[,2],2)/(choose(n,2)-choose(data[,2],2)*sigmoidal(data[,4]))
+%gradient<-gradient/abs(max(max(gradient),abs(min(gradient))))
+%target<-.5*t(data[,4])%*%alpha%*%data[,4]+sum(indicator*log(1+exp(-data[,4])))+sum((indicator-1)*log(choose(n,2)-choose(data[,2],2)*sigmoidal(data[,4])))
+%return(list(gradient=gradient,target=target))
+%}
+%
+%
+%HMC<-function(data,steps,epsilon,signal,l,size){
+%X<-as.matrix(data[,1])
+%K<-signal*exp(-.5*l^-2*(as.matrix(dist(X,diag=T,upper=T)))^2)
+% L<-t(chol(K))
+%  z<-forwardsolve(L,diag(1,nrow=nrow(L),ncol=nrow(L)))
+%  alpha<-backsolve(t(L),z)
+%p<-rnorm(nrow(data))
+%current<-hamiltonian(data,alpha,size)
+%proposal<-data
+%H<-.5*t(p)%*%p*+current$target
+%for (j in 1:steps){
+%p<-p-epsilon*.5*current$gradient
+%proposal[,4]<-proposal[,4]+epsilon*p
+%current<-hamiltonian(proposal,alpha,size)
+%p<-p-epsilon*.5*current$gradient
+%}
+%Hnew<-.5*t(p)%*%p*+current$target
+%dH<-Hnew-H
+%if (dH<0 || exp(-dH)>runif(1)){
+%data[,4]<-proposal[,4]}
+%
+%return(data)
+%}
+%
+%####Example
+%
+%backup<-data
+%
+%data<-backup
+%
+%for (Nsim in 1:40){
+%for (r in 1:20){
+%data<-number.thinned2(s,T,lambda,l,sig.var,data)
+%data<-location.thinned.uniform2(s,T,lambda,l,sig.var,data)
+%}
+%n<-sum(data[,3])+1
+%for (t in n:1){
+%if (t==n){
+%result<-HMC(data[data[,2]==t,],10,.01,sig.var,l,size)
+%}else{
+%add<-result[result[,2]==t+1 & result[,3]==1,]
+%result2<-HMC(rbind(data[data[,2]==t,],add),10,.01,sig.var,l,size)
+%result<-rbind(result,result2[result2[,2]==t,])
+%}
+%}
+%data<-result
+%}
+%
+%
+%g.t<-function(x){-log(lambda-exp(10*x))+10*x}
+%plot(seq(0,T,.001),g.t(seq(0,T,.001)),col="red",type="l",ylim=c(-4,3) )
+%points(s[1:(size-1)],g.prior[1:(size-1)],col="green")
+%points(data[1:(size-1),1],data[1:(size-1),4],col="yellow")
+%
+%
+%plot(seq(0,T,.001),g.t(seq(0,T,.001)),col="red",type="l",ylim=c(-4,3)) 
+%points(backup[,1],g.prior,col="green")
+%points(data[,1],data[,4],col="yellow")
+%points(s[1:(size-1)],g.prior[1:(size-1)],col="blue")
+%points(data[,1][data[,3]==1],data[,4][data[,3]==1],col="red")
+%
+%estimated<-GP.posterior(as.matrix(data[,1]),data[,4],l,sig.var,as.matrix(seq(0,T,.001)))$mean_f
+%points(seq(0,T,.001),estimated,col="blue")
+%par(mfrow=c(1,2))
+%
+%
+%plot(backup[,1][backup[,3]==1],rep(0,9),col="red",ylim=c(0,40),ylab="lambda(t)")
+%points(backup[,1][backup[,3]==0],rep(0,m))
+%abline(v=backup[,1][backup[,3]==1])
+%points(seq(0,T,.01),real.lambda(seq(0,T,.01)),type="l")
+%points(backup[,1],lambda*sigmoidal(backup[,4]),pch=2,col="green")
+%points(data[,1],lambda*sigmoidal(data[,4]),pch=2,col="red")
+%estimated<-GP.posterior(as.matrix(data[,1]),data[,4],l,sig.var,as.matrix(seq(0,T,.001)))$mean_f
+%points(seq(0,T,.001),lambda*sigmoidal(estimated),col="blue")
+%points(backup[,1][backup[,3]==1],lambda*sigmoidal(backup[,4][backup[,3]==1]))
+%points(data[,1][data[,3]==1],lambda*sigmoidal(data[,4][data[,3]==1]),col="red")
+%@
+%
+%\subsection{Sampling hyperparameters}
+%
+%
+%
+%
+%
+%
+%
+%
+%%With this algorithm, we do not know what rejections were made en route to
+%%accepting the observed data and these are critical tto defining the latent function
+%%g(x). In density modeling, defining regions with little probability mass is just as
+%%imporant as defining the aread with significant mass.\\
+%
+%
+%
+%
+%
+%%> > svn ls svn+ssh://svn.statnetproject.org/svn/netmodel/dynamics
+%%svn ls svn+ssh://svn.statnetproject.org/svn/netmodel/dynamics
+%
+%
+%Note $\Lambda(.)$ has to be deterministic here, see page 104 Cox). In terms of the 
+%coalescent process, this is the method suggested by Griffiths and Tavare 1994 and Hein et al Gene genealogies..
+%
+%
+%Many estimation algorithms consider only changes that are fully deterministic in nature. Such an assumption is unrealistic in many applications, in which
+%the variation in the population size is the result of exogeneous and/or endogeneous stochastic effects (Donnelly and Tavare, 1995). However,
+%in many applications, information may be available about the sizes of the population at various times in the 
+%past, so we are interesed in the structure of the genealogy conditional on observed values of the population sizes. However,
+%the form of the time change depends on properties of the random process governing the rate at which individuals 
+%are born in the population, about which little is known in many pracical contexts.\\
+%
+%Justifying strong parametric assumptions can be difficult and may requiere expensive tests over many candidate functional 
+%forms to find an appropriate description of the population size trajectory (Minin et al, 2008). This is where a 
+%gaussian process may become handly.. (more on Rasmussen).\\
+%
+%
+%The most common estimation methods discussed here are
+%\begin{enumerate}
+%\item Skyline plot estimation  (Pybus et al, 2000). This relies on a picewise constant population dynamic model
+%\item Generalized skyline plot estimation (Strimmer and Pybus, 2001) with a model selection approach (AIC)
+%\item Bayesian skyline plot (Drummond et al 2005) where a priori fix the total number of change points, used MCMC and first to use heterochronous data.
+%\item MCP model in a Bayesian framework (Opgen-Rhein et al, 2005). They bypasss the fixing of change points through reversible jump MCMC
+%\item Smooth Skyride through a rough skyline (Minin et al, 2008) by imposing a GMRF smoothing prior on the parameters of the piecewise
+%constant population size trajectory.
+%\item GP skyride
+%\end{enumerate}
+%
+%However, the methods described here are still limited by several simplifying assumptions.
+%Substantial population subdivision, recombination or selection can adversely affect the analysis of heterochro-
+%nous sequences, as will biases arising from the non-random sampling of individuals from the study population.
+%
+%
+% Extensions of the current ML and Markov chain Monte Carlo (MCMC) inference frameworks that incorporate
+% recombination, selection and migration are needed. (Drummond et al, MEP 2003)
+%
+%
+%
+%\subsection{Methods for simulating nonhomogeneous Poisson process}
+%
+%\begin{enumerate}
+%\item  Time-scale transformation of a homogeneous (rate one) Poisson process via the inverse of the (continuous) integrated rate function. This method 
+%is based on the result that $x_{1},x_{2},..$ are points in a nonhomogeneous Poisson process with continuous
+%integrated rate function $\Lambda(x)$ iff $x'_{1}=\Lambda(x_{1}),x'_{2}=\Lambda(x_{2}),...$, are points in a homogeneous
+%Poisson process of rate one. (Note $\Delta(.)$ has to be deterministic here, see page 104 Cox). In terms of the 
+%coalescent process, this is the method suggested by Griffiths and Tavare 1994 and Hein et al Gene genealogies..
+%\item By generating intervals between points individually. Given a set of points, the inteval $X_{i+1}-X_{i}$ is 
+%independent of the values of the previous points and has distribution $F(x)=1-exp(-(\Delta(x_{i}+x)-\Delta(x_{i}))$, then
+%we can generate $X_{i+1}-X_{i}=F^{-1}(U)$.
+%\item By generating a Poisson number of order statistics from a fixed density function
+%\item Thinning (Lewis and Shedler, 1978)
+%\end{enumerate}
+%
+%{\bf{Thinning}}\\
+%
+%
+%In the non-homogenenous Poisson process, the rate function is a known function of time. However, the Poisson process
+%may also be generalized by using an unobserved stochastic process $\{\Lambda(t)\}$ for the rate function, in which
+%case the resulting process is a doubly stochastic Poisson process.
+%
+%Consider the inhomogeneous Poisson process on a domain $\mathcal{S}\subset \mathbb{R}^{D}$. The Poisson process is parameterized by an intensity function $\lambda(s):\mathcal{S}\rightarrow\rightarrow\mathbb{R}^{+}$.
+%The random number events $N(\mathcal{T})$ within a subregion $\mathcal{T}\subset \mathcal{S}$ is Poisson distributed with parameter $\lambda_{\mathcal{T}}=\int_{\mathcal{T}}\lambda(s)ds$.\\
+%
+%
+%
+%In the SGCP, the intensity function is
+%\begin{equation}
+%\lambda(s)=\lambda(1+exp(-g(s))^{-1},
+%\end{equation}
+%where $g(s)\sim \textit{GP}(m(s),C(s,s'))$ and $\theta$ denotes the hyperparameters of the mean and covariance functions of the GP prior. The data is generated 
+%via thinning while simultaneously sampling the function $g(s)$ from the GP.\\
+%
+%We wish to generate $\{s_{k}\}^{K}_{k=1}$ on some subregion $\mathcal{T}$ which are drawn according to a Poisson process with intensity $\lambda(s)$. The 
+%algorithm proposed is the following:
+%\begin{enumerate}
+%\item Sample $J\sim Poisson(\lambda \mu(\mathcal{T}))$
+%\item Sample $\{\hat{s}_{j}\}^{J}_{j=1}\sim U(0,\mathcal{T})$ 
+%\item Sample $g(\hat{s}_{j})\sim \textit{GP}(g|\hat{s}_{j},\theta)$
+%\item Sample $\{r_{j}\}^{J}_{j=1} \sim U(0,1)$
+%\item Accept $\{s_{k}\}^{K}_{k=1}$ if $r_{k}<(1+exp(-g(\hat{s}_{k}))^{-1}$
+%\end{enumerate}
+%
+%\section{Coalescent with nonconstant population size}
+%The coalescent model provides a basis for statistically infering the demographic history as a function of time from sampled sequences or from the
+%corresponding infered genealogies. 
+%A general approach of the coalescent theory allowing arbitrary population size was presented in 1994 by Griffiths and Tavar\'{e}.
+
+\bibliographystyle{apalike}
+\bibliography{skytrack}
+\end{document}

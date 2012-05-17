@@ -1,0 +1,125 @@
+\documentclass{article}
+
+%\VignetteIndexEntry{An R package for coalescent simulation and estimation in a varying environment}
+%\VignettePackage{coalsieve}
+%\VignetteDepends{ape}
+%\VignetteKeyword{coalescent}
+
+\usepackage[dvips]{color}
+\usepackage{latexsym}
+\usepackage[activeacute,english]{babel}
+\usepackage{graphicx,hyperref}
+\usepackage{amsmath}
+%\newtheorem{algorithm}[theorem]{Algorithm}
+
+
+
+
+\usepackage{amscd}
+\usepackage{amsfonts}
+\usepackage[tableposition=top]{caption}
+\usepackage{ifthen}
+\usepackage[utf8]{inputenc}
+\newenvironment{definition}[1][Definition]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{example}[1][Example]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{remark}[1][Remark]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{theorem}[1][Theorem]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+
+
+%\newtheorem{algorithm}[theorem]{Algorithm}
+%\newtheorem{definition}[theorem]{Definition}
+
+\usepackage{Sweave}
+\begin{document}
+\title{The making of an R-package for the first time}
+\author{Julia A. Palacios}
+%\email{jpalacio@stat.washington.edu}}
+\maketitle
+
+\section{Introduction}
+I am trying to teach myself how to create an \texttt{R} package, have it in a reporsitory where other people would be able to contribute, keep control of changes and versions, and that will make the transition easy when it comes to implementation in \texttt{R-cran}. I would not dare to recommend following all my steps described in this document. I am sure that there are better ways out there but I have not done the neccessary research. I am just sharing what worked for me (using a Mac OS X 10.6.8), while searching on the web.\\
+
+\section{Sweave document}
+This document is originally written in \texttt{.Rnw} format using \texttt{Sweave}. Sweave allows you to write $\LaTeX$ documents and R code in the same file with extension \texttt{.Rnw}. From within \texttt{R}, you use the function {\verb Sweave(myfile.Rnw)} to process the \texttt{R} part and generates the \texttt{.tex} file (no need to install Sweave. It is already there). It generates intermediate figures and PDF files needed for your $\LaTeX$ document. You can run pdflatex to your .tex file and get a beautiful PDF document like this one. Alternatively, I could have used the \texttt{weaver} package which is supposed to be more efficient by caching the computations for code chunks, so that on subsequent runs code chunks that have not changed do not need to be re-evaluated (cite: R programming for Bioinformatics). I still haven't tryied \texttt{weaver}.\\
+
+The file {\verb the_making_coalsieve.Rnw } (this document) can be used as a template for a \textit{vignette} since it includes the meta-information necessary for documenting \texttt{R} packages in the preambule. This document is being edited using \texttt{texmaker}. After I add some text or code, I run the following lines in \texttt{R}
+\begin{verbatim}
+lib<-"~/Documents/RA/coalsieve/"
+Sweave(paste(lib,"the_making_coalsieve.Rnw",sep=""))
+tools::texi2dvi("the_making_coalsieve.tex", pdf = TRUE)
+\end{verbatim}
+and I can check the PDF file.
+
+\section{The repository}
+I wanted to have a repository (independent of my computer) and I wanted to learn a little bit about \texttt{git}. I could have used googlecode and svn or just \texttt{R-Forge} directly but I decided to use \texttt{Github} and \texttt{git}, mainly driven by the following discussion \url{http://tolstoy.newcastle.edu.au/R/e17/help/12/02/3653.html}. I created a username in Github and followed the help to install and set-up git. My repository is the following: \url{https://github.com/JuliaPalacios/Coalsieve}. I need to initialize the repository on my computer:
+\begin{verbatim}
+>cd coalsieve
+>git init
+\end{verbatim}
+Everytime I add and commit any changes (git add file) or (git commit -m 'comment'), I need to update the remote repository, doing:
+\begin{verbatim}
+>git remote add origin git@github.com:JuliaPalacios/coalsieve.git
+>git push -u origin master
+\end{verbatim}
+
+\section{Set-up package}
+I suggest you to read \url{http://cran.r-project.org/doc/contrib/Leisch-CreatingPackages.pdf} and look up at \url{http://cran.revolution-computing.com/doc/manuals/R-exts.html} if you need specific help.  
+
+\subsection{Writting functions or main code}
+coalsieve will generate genealogies from the coalescent with variable population size when the effective population size is either deterministic or 
+stochastic and can use two different methods: transformation (for deterministic trajectories only) and thinning. I first create {\verb coalsieve_transformation}. This is the function that assumes a deterministic trajectory and requires integration and equation solution.
+
+<<label=transformation,include=FALSE>>=
+coalsieve_transformation<-function(sample, trajectory){
+}
+
+@
+
+I saved all these functions in \texttt{coalsieve/R/coalgen.R} and run the following code
+\begin{verbatim}
+rm(list=ls())
+lib<-"~/Documents/RA/coalsieve/"
+lib2<-"~/Documents/RA/coalsieve/R/"
+setwd(lib)
+source(paste(lib2,"coalgen.R",sep=""))
+package.skeleton(name = "coalsieve")
+\end{verbatim}
+
+
+\section{Documentation}
+While doing the package, it has been usefult to me to write the code and explain what I am doing directly from a \texttt{Sweave} document like this one. I plan to use the same document as a vignette for the program. Also, while developing the code, it is useful to write as many comments as possible. Instead of using $\#$ for commenting, it is useful if use $\#'$ instead. That way, these comments will later be used by \texttt{roxygen2} to generate the package documentation through \texttt{devtools}.
+\section{Creating the vignettes}
+
+%Figure~\ref{fig:one} (p.~\pageref{fig:one})
+
+<<label=code1,include=FALSE>>=
+x<-c(1,1)
+x
+@
+%\begin{figure}
+%\begin{center}
+%<<label=fig1,fig=TRUE,echo=FALSE>>=
+%<<fig1plot>>
+%@
+%\end{center}
+%\caption{Black dots: Mean time from transformation method. Red dots: Mean time from thinning using exponentials. Blue dots: Mean time 
+%from thinning using a poisson number of points}
+%\label{fig:one}
+%\end{figure}
+
+%<<label=fig2plot,include=FALSE>>=
+%par(mfrow=c(3,3))
+%pval<-rep(0,9)
+%for (j in 1:9){
+%qqplot(result[j,],result2[j,])
+%pval[j]<-ks.test(result[j,],result2[j,])$p.value
+%}
+%par(mfrow=c(1,1))
+%pval
+%@
+
+\end{document}
